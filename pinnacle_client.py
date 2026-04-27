@@ -1,8 +1,10 @@
 """
 pinnacle_client.py — Pinnacle 1X2 odds via The Odds API
 """
+import json
 import logging
 import os
+import pathlib
 
 import requests
 from dotenv import load_dotenv
@@ -17,33 +19,16 @@ _BOOKMAKER = "pinnacle"
 _REGIONS   = "eu"
 _ODDS_FMT  = "decimal"
 
-# Maps Winner.co.il Hebrew league names → Odds API sport keys.
+_TRANSLATIONS = pathlib.Path(__file__).parent / "translations.json"
+
+def _load_league_map() -> dict[str, str | None]:
+    with _TRANSLATIONS.open(encoding="utf-8") as f:
+        return json.load(f)["winner_league_to_sport_key"]
+
+# Maps Winner.co.il Hebrew league names → Odds API sport keys (None = not on The Odds API).
 # Usage: WINNER_LEAGUE_MAP.get(winner_market["league"])
-WINNER_LEAGUE_MAP: dict[str, str] = {
-    "ליגת Winner":        "soccer_israel_premier_league",
-    "סעודית ראשונה":      "soccer_saudi_premier_league",
-    "מצרית ראשונה":       "soccer_egypt_premier_league",
-    "ליגת האלופות":       "soccer_uefa_champs_league",
-    "גביע ליברטדורס":    "soccer_conmebol_copa_libertadores",
-    "סוד אמריקנה":        "soccer_conmebol_copa_sudamericana",
-    "איטלקית שניה":       "soccer_italy_serie_b",
-    "אינדונזית ראשונה":   "soccer_liga_1_indonesia",
-    "פרמייר ליג":         "soccer_epl",
-    "יפנית ראשונה":       "soccer_japan_j_league",
-    "איטלקית ראשונה":     "soccer_italy_serie_a",
-    "הליגה האירופית":     "soccer_uefa_europa_league",
-    "ספרדית ראשונה":      "soccer_spain_la_liga",
-    "קונפרנס ליג":        "soccer_uefa_europa_conference_league",
-    "נורבגית שניה":       "soccer_norway_second_division",
-    "נורבגית ראשונה":     "soccer_norway_eliteserien",
-    "איסלנדית ראשונה":    "soccer_iceland_premier_league",
-    "ספרדית שניה":        "soccer_spain_segunda_division",
-    "תאילנדית ראשונה":    "soccer_thailand_premier_league",
-    "סינית ראשונה":       "soccer_china_super_league",
-    "גרמנית ראשונה":      "soccer_germany_bundesliga",
-    "אנגלית ראשונה":      "soccer_england_league1",
-    "פורטוגלית ראשונה":   "soccer_portugal_primeira_liga",
-}
+# Edit translations.json to add or correct entries.
+WINNER_LEAGUE_MAP: dict[str, str | None] = _load_league_map()
 
 
 def _log_quota(resp: requests.Response) -> None:
