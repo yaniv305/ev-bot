@@ -31,7 +31,7 @@ import asyncio
 import json
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -485,6 +485,25 @@ class WinnerScraper:
         return _normalise_market(raw)
 
 
+# ── Filter ────────────────────────────────────────────────────────────────────
+
+def _filter_upcoming_football(markets: list) -> list:
+    """Return football markets (sport_id=240) kicking off within the next 30 minutes (UTC)."""
+    now = datetime.now(tz=timezone.utc)
+    cutoff = now + timedelta(minutes=30)
+    result = []
+    for m in markets:
+        if m["sport_id"] != 240:
+            continue
+        try:
+            kickoff_dt = datetime.fromisoformat(m["kickoff"])
+        except (ValueError, KeyError):
+            continue
+        if now <= kickoff_dt <= cutoff:
+            result.append(m)
+    return result
+
+
 # ── Main (test run) ───────────────────────────────────────────────────────────
 
 async def _main() -> None:
@@ -505,7 +524,7 @@ async def _main() -> None:
             print(f"\n[FAIL] Winner fetch failed: {result['error']}")
             return
 
-        markets = result["markets"]
+        markets = _filter_upcoming_football(result["markets"])
         if not markets:
             print("\n[FAIL] No markets returned. Check stderr for details.")
             return
