@@ -68,7 +68,9 @@ def _translate_team(heb_name: str, pinnacle_teams: list[str]) -> Optional[str]:
         f"{pinnacle_teams}\n"
         f"Which Pinnacle team name matches the Hebrew name?\n"
         f"Return ONLY the exact Pinnacle name from the list, nothing else.\n"
-        f"If no match exists, return NO_MATCH."
+        f"If no match exists, return NO_MATCH.\n"
+        f"IMPORTANT: Return ONLY the exact team name from the list or the word NO_MATCH. "
+        f"Do not return any explanation, sentence, or extra text."
     )
 
     try:
