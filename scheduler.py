@@ -14,6 +14,8 @@ from pinnacle_client import get_pinnacle_odds, WINNER_LEAGUE_MAP
 from matcher import match_markets
 from ev_calculator import calculate_ev
 from telegram_bot import send_alerts
+from database import init_db, save_alert, alert_exists, get_pending_results, update_result
+from results_fetcher import get_results_batch
 
 load_dotenv()
 
@@ -68,12 +70,45 @@ async def _run_pipeline() -> None:
     log.info("[Scheduler] %d matched pairs", len(pairs))
 
     alerts = calculate_ev(pairs)
-    log.info("[Scheduler] %d +EV alert(s)", len(alerts))
 
-    await send_alerts(alerts)
+    # Map match name → Winner event_id for DB storage
+    event_id_map = {
+        f"{p['pinnacle']['home_team']} vs {p['pinnacle']['away_team']}": p["winner"]["event_id"]
+        for p in pairs
+    }
+
+    # Deduplicate, save, and send new alerts
+    alerts_to_send = []
+    for alert in alerts:
+        event_id = event_id_map.get(alert["match"])
+        if event_id is None:
+            log.warning("[Scheduler] No event_id for %s", alert["match"])
+            continue
+        if alert_exists(event_id, alert["outcome"], alert["ev_pct"]):
+            log.info("[Scheduler] Skipping duplicate: %s %s", alert["match"], alert["outcome"])
+            continue
+        save_alert(alert, event_id)
+        alerts_to_send.append(alert)
+
+    await send_alerts(alerts_to_send)
+    log.info("[Scheduler] %d new +EV alert(s) sent", len(alerts_to_send))
+
+    # Check and update results for pending alerts
+    pending = get_pending_results()
+    if pending:
+        event_ids = [row["event_id"] for row in pending]
+        fetched = await get_results_batch(event_ids)
+        updated = 0
+        for row in pending:
+            result = fetched.get(row["event_id"])
+            if result is not None:
+                update_result(row["id"], result)
+                updated += 1
+        log.info("[Results] Updated %d / %d pending results", updated, len(pending))
 
 
 async def main() -> None:
+    init_db()
     log.info("EV Bot scheduler starting.")
     while True:
         now_il = datetime.now(tz=_ISRAEL_TZ)
