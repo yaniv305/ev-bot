@@ -40,6 +40,19 @@ def _save_translations(data: dict) -> None:
     tmp.replace(_TRANSLATIONS)
 
 
+def _is_in_cache(heb_name: str) -> bool:
+    data = _load_translations()
+    return heb_name in data.get("team_name_cache", {})
+
+
+def _delete_from_cache(heb_name: str) -> None:
+    data = _load_translations()
+    cache = data.get("team_name_cache", {})
+    if heb_name in cache:
+        del cache[heb_name]
+        _save_translations(data)
+
+
 # ── Team name translation ──────────────────────────────────────────────────────
 
 def _translate_team(heb_name: str, pinnacle_teams: list[str]) -> Optional[str]:
@@ -176,15 +189,18 @@ def match_markets(
         winner_1x2.append(wm)
 
     pairs: list[dict] = []
+    skipped_counts: dict[str, int] = {}
 
     for wm in winner_1x2:
         # Condition 1: league must map to a Pinnacle sport key
         sport_key = WINNER_LEAGUE_MAP.get(wm["league"])
         if not sport_key:
+            skipped_counts[wm["league"]] = skipped_counts.get(wm["league"], 0) + 1
             continue
 
         candidates = pinnacle_by_sport.get(sport_key, [])
         if not candidates:
+            log.info("[Matcher] [NO PINNACLE DATA] %s  (%s)", wm["description"], sport_key)
             continue
 
         # Parse home/away team names from description
@@ -201,13 +217,14 @@ def match_markets(
         })
 
         # Condition 5: translate Winner names to exact Pinnacle names via Claude
+        home_was_cached = _is_in_cache(home_heb)
+        away_was_cached = _is_in_cache(away_heb)
         home_eng = _translate_team(home_heb, pinnacle_teams)
         away_eng = _translate_team(away_heb, pinnacle_teams)
         if home_eng is None or away_eng is None:
-            pinnacle_teams_str = pinnacle_teams
             log.info(
                 "[Matcher] [NO MATCH] %s vs %s  (%s)\n  Pinnacle teams in this league: %s",
-                home_heb, away_heb, sport_key, pinnacle_teams_str,
+                home_heb, away_heb, sport_key, pinnacle_teams,
             )
             continue
 
@@ -230,14 +247,40 @@ def match_markets(
                 matched = pm
                 break
 
+        if matched is None and (home_was_cached or away_was_cached):
+            _delete_from_cache(home_heb)
+            _delete_from_cache(away_heb)
+            new_home = _translate_team(home_heb, pinnacle_teams)
+            new_away = _translate_team(away_heb, pinnacle_teams)
+            if new_home is not None and new_away is not None:
+                for pm in candidates:
+                    try:
+                        pinn_ko = datetime.fromisoformat(pm["commence_time"].replace("Z", "+00:00"))
+                    except (ValueError, KeyError):
+                        continue
+                    if abs(winner_ko - pinn_ko) > _KICKOFF_DELTA_MAX:
+                        continue
+                    if new_home == pm["home_team"] and new_away == pm["away_team"]:
+                        matched = pm
+                        if new_home != home_eng:
+                            log.info("[Matcher] [RETRANSLATED] %r → %r", home_heb, new_home)
+                        if new_away != away_eng:
+                            log.info("[Matcher] [RETRANSLATED] %r → %r", away_heb, new_away)
+                        home_eng, away_eng = new_home, new_away
+                        break
+
         if matched:
             log.info("[Matcher] Matched: %s vs %s  (%s)", home_eng, away_eng, sport_key)
             pairs.append({"winner": wm, "pinnacle": matched})
         else:
+            confirmed = " - CONFIRMED" if (home_was_cached or away_was_cached) else ""
             log.info(
-                "[Matcher] [NO MATCH] %s vs %s  (%s)\n  Pinnacle teams in this league: %s",
-                home_heb, away_heb, sport_key, pinnacle_teams,
+                "[Matcher] [NO MATCH%s] %s vs %s  (%s)\n  Pinnacle teams in this league: %s",
+                confirmed, home_heb, away_heb, sport_key, pinnacle_teams,
             )
+
+    for league, count in sorted(skipped_counts.items(), key=lambda x: -x[1]):
+        log.info("[Matcher] [SKIPPED] %s — %d game(s) (league not mapped)", league, count)
 
     log.info("[Matcher] %d / %d Winner games matched", len(pairs), len(winner_1x2))
     return pairs
