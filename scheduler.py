@@ -29,22 +29,30 @@ _PINNACLE_TTL = timedelta(minutes=20)
 # In-memory Pinnacle cache
 _pinnacle_cache: list[dict] | None = None
 _pinnacle_cache_time: datetime | None = None
+_pinnacle_cache_keys: set[str] = set()
 
 
 def _get_pinnacle_odds_cached(sport_keys: list[str]) -> list[dict]:
-    global _pinnacle_cache, _pinnacle_cache_time
+    global _pinnacle_cache, _pinnacle_cache_time, _pinnacle_cache_keys
     now = datetime.now(tz=_ISRAEL_TZ)
+    current_keys = set(sport_keys)
+    new_keys = current_keys - _pinnacle_cache_keys
     if (
         _pinnacle_cache is not None
         and _pinnacle_cache_time is not None
         and now - _pinnacle_cache_time < _PINNACLE_TTL
+        and not new_keys
     ):
         log.info("[Pinnacle] Using cached odds")
         return _pinnacle_cache
-    log.info("[Pinnacle] Fetching fresh odds")
+    if new_keys and _pinnacle_cache is not None:
+        log.info("[Pinnacle] New leagues detected — refreshing cache: %s", sorted(new_keys))
+    else:
+        log.info("[Pinnacle] Fetching fresh odds")
     result = get_pinnacle_odds(sport_keys)
     _pinnacle_cache = result
     _pinnacle_cache_time = now
+    _pinnacle_cache_keys = current_keys
     return result
 
 

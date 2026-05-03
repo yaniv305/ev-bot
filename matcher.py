@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 _TRANSLATIONS = pathlib.Path(__file__).parent / "translations.json"
 
 # Thresholds — keep in sync with PLAYBOOK.md
-_PINNACLE_WINDOW_MIN = 45                    # condition 3: Pinnacle kickoff window
+_PINNACLE_WINDOW_MIN = 75                    # condition 3: Pinnacle kickoff window
 _KICKOFF_DELTA_MAX   = timedelta(minutes=15) # condition 4: max kickoff difference
 
 
