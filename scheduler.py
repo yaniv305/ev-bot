@@ -14,6 +14,8 @@ from pinnacle_client import get_pinnacle_odds, WINNER_LEAGUE_MAP
 from matcher import match_markets
 from ev_calculator import calculate_ev
 from telegram_bot import send_alerts
+from database import init_db, save_alert, alert_exists, get_pending_results, update_result
+from results_fetcher import get_results_batch
 
 load_dotenv()
 
@@ -78,11 +80,40 @@ async def _run_pipeline() -> None:
     alerts = calculate_ev(pairs)
     log.info("[Scheduler] %d +EV alert(s)", len(alerts))
 
-    await send_alerts(alerts)
+    event_id_map = {
+        f"{p['pinnacle']['home_team']} vs {p['pinnacle']['away_team']}": p["winner"]["event_id"]
+        for p in pairs
+    }
+
+    new_alerts = []
+    for alert in alerts:
+        event_id = event_id_map.get(alert["match"])
+        if event_id is None:
+            new_alerts.append(alert)
+            continue
+        if not alert_exists(event_id, alert["outcome"], alert["ev_pct"]):
+            save_alert(alert, event_id)
+            new_alerts.append(alert)
+        else:
+            log.info("[Scheduler] Duplicate skipped: %s %s EV=+%s%%",
+                     alert["match"], alert["outcome"], alert["ev_pct"])
+
+    await send_alerts(new_alerts)
+
+    pending = get_pending_results()
+    if pending:
+        results = await get_results_batch([row["event_id"] for row in pending])
+        for row in pending:
+            result = results.get(row["event_id"])
+            if result is not None:
+                update_result(row["id"], result)
+                log.info("[Scheduler] Result: %s vs %s → %s",
+                         row["home"], row["away"], result)
 
 
 async def main() -> None:
     log.info("EV Bot scheduler starting.")
+    init_db()
     while True:
         now_il = datetime.now(tz=_ISRAEL_TZ)
         if _ACTIVE_START <= now_il.hour < _ACTIVE_END:

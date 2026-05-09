@@ -1,5 +1,5 @@
 # EV Bot — Playbook
-Last updated: 2026-04-28
+Last updated: 2026-05-03
 
 ## Matching Conditions
 These conditions must ALL pass for a Winner game to be matched against a Pinnacle game.
@@ -16,4 +16,4 @@ Currently supported: 1X2 only
 Planned: Totals, European Handicap, Goal Range
 
 ## Leagues
-Mapped in translations.json — 33 leagues currently supported.
+Mapped in translations.json — 41 leagues currently supported.

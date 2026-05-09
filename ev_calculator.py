@@ -70,6 +70,7 @@ def calculate_ev(matched_pairs: list[dict]) -> list[dict]:
                 alerts.append({
                     "match": match_name,
                     "israel_time": israel_time,
+                    "kickoff": wm["kickoff"],
                     "market": "1X2",
                     "outcome": outcome,
                     "winner_odds": w_odds,

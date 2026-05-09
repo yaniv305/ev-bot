@@ -4,7 +4,6 @@ results_fetcher.py — Fetch finished match results from Winner.co.il.
 Intercepts the GetResults API using a warmed stealth browser session,
 the same approach as winner_scraper.py. Returns Home/Draw/Away per event_id.
 """
-import asyncio
 import logging
 from typing import Optional
 

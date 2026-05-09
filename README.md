@@ -77,6 +77,19 @@ PLAYBOOK.md         — Matching conditions reference
 requirements.txt    — Python dependencies
 ```
 
+## Setup
+
+```bash
+git clone https://github.com/yaniv305/ev-bot.git
+cd ev-bot
+pip install -r requirements.txt
+playwright install chromium
+cp .env.example .env   # then fill in your API keys
+python scheduler.py
+```
+
+Requires Python 3.12+. The bot runs every 10 minutes between 12:00–22:00 Israel time.
+
 ## What I Learned
 
 Building this bot forced me to solve real engineering problems rather than textbook ones. Bypassing Imperva's bot protection meant understanding how browsers actually behave at the network level, not just how to write a scraper. Integrating three external APIs (Playwright, Claude, The Odds API) taught me how to handle rate limits, cache data intelligently, and design systems that degrade gracefully when one component fails.
