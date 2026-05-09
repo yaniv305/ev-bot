@@ -488,9 +488,9 @@ class WinnerScraper:
 # ── Filter ────────────────────────────────────────────────────────────────────
 
 def _filter_upcoming_football(markets: list) -> list:
-    """Return football markets (sport_id=240) kicking off within the next 60 minutes (UTC)."""
+    """Return football markets (sport_id=240) kicking off within the next 120 minutes (UTC)."""
     now = datetime.now(tz=timezone.utc)
-    cutoff = now + timedelta(minutes=60)
+    cutoff = now + timedelta(minutes=120)
     result = []
     for m in markets:
         if m["sport_id"] != 240:
