@@ -283,4 +283,10 @@ def match_markets(
         log.info("[Matcher] [SKIPPED] %s — %d game(s) (league not mapped)", league, count)
 
     log.info("[Matcher] %d / %d Winner games matched", len(pairs), len(winner_1x2))
+    skipped_total = sum(skipped_counts.values())
+    other = len(winner_1x2) - len(pairs) - skipped_total
+    log.info(
+        "[Matcher] Summary: %d matched | %d skipped (unmapped) | %d unmatched (mapped leagues)",
+        len(pairs), skipped_total, other,
+    )
     return pairs
