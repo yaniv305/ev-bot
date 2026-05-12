@@ -36,6 +36,7 @@
     "יפנית ראשונה": "soccer_japan_j_league",
     "סעודית ראשונה": "soccer_saudi_arabia_pro_league",
     "אנגלית ראשונה": "soccer_england_league1",
+    "איטלקית שניה": "soccer_italy_serie_b",
     "פרמייר ליג": "soccer_epl",
     "ליגת האלופות": "soccer_uefa_champs_league",
     "הליגה האירופית": "soccer_uefa_europa_league",
@@ -160,6 +161,7 @@
     "שצ'צ'ין": "Pogoń Szczecin",
     "ויסלה פלוצק": "Wisła Płock",
     "טולוז": "Toulouse",
+    "ראן": "Rennes",
     "פ.צ. פאריס": "Paris FC",
     "ברסט": "Brest",
     "אוקזר": "Auxerre",
@@ -385,6 +387,9 @@
     "רמו": "Remo",
     "פלמייראס": "Palmeiras",
     "נאוטיקו": "Nautico PE",
-    "אמריקה מיניירו": "América Mineiro"
+    "אמריקה מיניירו": "América Mineiro",
+    "אלברקה": "Alverca",
+    "אסטודיאנטס לה פלטה": "Estudiantes",
+    "קולומבוס": "Columbus Crew SC"
   }
 }
