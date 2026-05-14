@@ -81,7 +81,7 @@ results_fetcher.py  — Scrapes Winner results page to fill in final scores
 
 **Tests:**
 ```
-test_ev_calculator.py — pytest tests for EV calculation logic
+tests/test_ev_calculator.py — pytest tests for EV calculation logic
 ```
 
 **Config:**
