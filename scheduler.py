@@ -4,7 +4,7 @@ scheduler.py — Main loop: runs the full EV pipeline every 10 minutes.
 import asyncio
 import logging
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -16,6 +16,7 @@ from ev_calculator import calculate_ev
 from telegram_bot import send_alerts
 from database import init_db, save_alert, alert_exists, get_pending_results, update_result
 from results_fetcher import get_results_batch
+from agents.daily_prep_agent import run_agent
 
 load_dotenv()
 
@@ -27,6 +28,8 @@ _RUN_INTERVAL = timedelta(minutes=10)
 _ACTIVE_START = 12   # 12:00 Israel
 _ACTIVE_END   = 22   # 22:00 Israel
 _PINNACLE_TTL = timedelta(minutes=20)
+
+agent_ran_today: date | None = None
 
 # In-memory Pinnacle cache
 _pinnacle_cache: list[dict] | None = None
@@ -112,10 +115,20 @@ async def _run_pipeline() -> None:
 
 
 async def main() -> None:
+    global agent_ran_today
     log.info("EV Bot scheduler starting.")
+    log.info("Active window: 12:00–22:00 IL | Pipeline: every 10 min | Agent: daily at 11:55 IL")
     init_db()
     while True:
         now_il = datetime.now(tz=_ISRAEL_TZ)
+
+        if now_il.hour == 11 and 50 <= now_il.minute < 60 and agent_ran_today != now_il.date():
+            try:
+                await run_agent()
+            except Exception as exc:
+                log.error("[Scheduler] Agent run failed: %s", exc, exc_info=True)
+            agent_ran_today = now_il.date()
+
         if _ACTIVE_START <= now_il.hour < _ACTIVE_END:
             try:
                 await _run_pipeline()

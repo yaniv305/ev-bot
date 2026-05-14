@@ -72,6 +72,12 @@ ev_calculator.py    — Calculates Expected Value, filters opportunities above 4
 telegram_bot.py     — Sends +EV alerts to Telegram
 ```
 
+**Agents:**
+```
+agents/daily_prep_agent.py  — Daily prep agent: verifies leagues, team translations, and measures
+                              today's match coverage before the 12:00 run (runs at 11:55 IL)
+```
+
 **Data & Storage:**
 ```
 translations.json   — League name mappings + team name translation cache
