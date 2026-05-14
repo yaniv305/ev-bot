@@ -62,19 +62,33 @@ The full pipeline is scheduled every 10 minutes by `scheduler.py`, active betwee
 
 ## Project Structure
 
+**Pipeline** (run in order by `scheduler.py`):
 ```
-scheduler.py        — Main loop: runs pipeline every 10 min, 12:00–22:00 IL
-winner_scraper.py   — Playwright scraper: intercepts Winner.co.il internal API
-pinnacle_client.py  — Fetches Pinnacle odds via The Odds API
-matcher.py          — Matches Winner games to Pinnacle by league, kickoff, team name
-ev_calculator.py    — Calculates EV for each 1X2 outcome; filters to ≥4%
-telegram_bot.py     — Formats and sends alerts to a Telegram channel
-database.py         — SQLite helpers: save alerts, deduplication, pending result queries
-results_fetcher.py  — Intercepts Winner GetResults API to record match outcomes
-translations.json   — League key mappings + persistent team name translation cache
-alerts.db           — SQLite database file: alert history and results
-PLAYBOOK.md         — Matching conditions reference
+scheduler.py        — Main loop: runs every 10 min between 12:00–22:00 IL
+winner_scraper.py   — Scrapes live football odds from Winner.co.il via Playwright
+pinnacle_client.py  — Fetches sharp odds from Pinnacle via The Odds API
+matcher.py          — Matches Winner games against Pinnacle using Claude AI translation
+ev_calculator.py    — Calculates Expected Value, filters opportunities above 4%
+telegram_bot.py     — Sends +EV alerts to Telegram
+```
+
+**Data & Storage:**
+```
+translations.json   — League name mappings + team name translation cache
+database.py         — SQLite tracking for alerts and match results
+results_fetcher.py  — Scrapes Winner results page to fill in final scores
+```
+
+**Tests:**
+```
+test_ev_calculator.py — pytest tests for EV calculation logic
+```
+
+**Config:**
+```
+.env.example        — Required environment variables template
 requirements.txt    — Python dependencies
+PLAYBOOK.md         — Matching conditions and system logic documentation
 ```
 
 ## Setup
