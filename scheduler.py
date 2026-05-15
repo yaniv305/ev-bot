@@ -105,7 +105,7 @@ async def _run_pipeline() -> None:
 
     pending = get_pending_results()
     if pending:
-        results = await get_results_batch([row["event_id"] for row in pending])
+        results = get_results_batch(pending)
         for row in pending:
             result = results.get(row["event_id"])
             if result is not None:

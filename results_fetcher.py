@@ -1,114 +1,125 @@
 """
-results_fetcher.py — Fetch finished match results from Winner.co.il.
-
-Intercepts the GetResults API using a warmed stealth browser session,
-the same approach as winner_scraper.py. Returns Home/Draw/Away per event_id.
+results_fetcher.py — Fetch finished match results via The Odds API scores endpoint.
 """
+import json
 import logging
+import os
+import pathlib
+from difflib import SequenceMatcher
 from typing import Optional
+
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 log = logging.getLogger(__name__)
 
-_RESULTS_URL = "https://www.winner.co.il/results"
-_FOOTBALL_SPORT_ID = "240"
-_INTERCEPT_TIMEOUT = 30_000
-_FIRST_LOAD_TIMEOUT = 45_000
-
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
+_BASE_URL      = "https://api.the-odds-api.com/v4"
+_TRANSLATIONS  = pathlib.Path(__file__).parent / "translations.json"
+_FUZZY_THRESHOLD = 0.90
 
 
-def _determine_result(score_a: str, score_b: str) -> Optional[str]:
+def _load_sport_keys() -> list[str]:
+    with _TRANSLATIONS.open(encoding="utf-8") as f:
+        data = json.load(f)
+    return sorted({v for v in data.get("winner_league_to_sport_key", {}).values() if v})
+
+
+def _fetch_scores(sport_key: str, api_key: str) -> list[dict]:
     try:
-        a, b = int(score_a), int(score_b)
-    except (ValueError, TypeError):
+        resp = requests.get(
+            f"{_BASE_URL}/sports/{sport_key}/scores/",
+            params={"apiKey": api_key, "daysFrom": 1},
+            timeout=10,
+        )
+        if not resp.ok:
+            log.warning("[ResultsFetcher] HTTP %s for %s", resp.status_code, sport_key)
+            return []
+        return resp.json()
+    except Exception as exc:
+        log.error("[ResultsFetcher] Error fetching scores for %s: %s", sport_key, exc)
+        return []
+
+
+def _determine_result(home_team: str, away_team: str, scores: list[dict]) -> Optional[str]:
+    try:
+        home_score = next(int(s["score"]) for s in scores if s["name"] == home_team)
+        away_score = next(int(s["score"]) for s in scores if s["name"] == away_team)
+    except (StopIteration, ValueError, TypeError):
         return None
-    if a > b:
+    if home_score > away_score:
         return "Home"
-    if b > a:
+    if away_score > home_score:
         return "Away"
     return "Draw"
 
 
-async def get_results_batch(event_ids: list[int]) -> dict[int, Optional[str]]:
+def _fuzzy_match(name: str, candidates: list[str]) -> Optional[str]:
+    best, best_score = None, 0.0
+    for candidate in candidates:
+        score = SequenceMatcher(None, name.lower(), candidate.lower()).ratio()
+        if score > best_score:
+            best, best_score = candidate, score
+    return best if best_score >= _FUZZY_THRESHOLD else None
+
+
+def get_results_batch(pending: list[dict]) -> dict[int, Optional[str]]:
     """
-    Fetch results for a batch of event IDs in one browser session.
-    Returns {event_id: "Home"|"Draw"|"Away"|None}.
+    Fetch results for pending alerts from The Odds API scores endpoint.
+
+    Args:
+        pending: rows from get_pending_results() — each has event_id, home, away.
+
+    Returns:
+        {event_id: "Home"|"Draw"|"Away"|None}
     """
-    if not event_ids:
+    if not pending:
         return {}
 
-    target_ids = set(event_ids)
-    results: dict[int, Optional[str]] = {eid: None for eid in event_ids}
+    api_key = os.getenv("ODDS_API_KEY")
+    if not api_key:
+        log.error("[ResultsFetcher] ODDS_API_KEY not set")
+        return {row["event_id"]: None for row in pending}
 
-    from playwright.async_api import async_playwright, TimeoutError as PWTimeout
-    from playwright_stealth import Stealth
+    results: dict[int, Optional[str]] = {row["event_id"]: None for row in pending}
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        context = await browser.new_context(
-            user_agent=USER_AGENT,
-            locale="he-IL",
-            viewport={"width": 1280, "height": 800},
-            extra_http_headers={"Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7"},
-        )
-        stealth = Stealth(navigator_languages_override=("he-IL", "he", "en-US", "en"))
-        await stealth.apply_stealth_async(context)
-
-        page = await context.new_page()
-        await page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
-        )
-
-        try:
-            async with page.expect_response(
-                lambda r: "GetResults" in r.url,
-                timeout=_INTERCEPT_TIMEOUT,
-            ) as resp_info:
-                try:
-                    await page.goto(
-                        _RESULTS_URL,
-                        wait_until="networkidle",
-                        timeout=_FIRST_LOAD_TIMEOUT,
-                    )
-                except PWTimeout:
-                    pass
-
-            response = await resp_info.value
-            data = await response.json()
-        except Exception as exc:
-            log.error("[ResultsFetcher] Failed to intercept GetResults: %s", exc)
-            await browser.close()
-            return results
-
-        events = data if isinstance(data, list) else data.get("events") or data.get("data") or []
-
-        for event in events:
-            try:
-                if str(event.get("sportid", "")) != _FOOTBALL_SPORT_ID:
-                    continue
-                eid = int(event["eventId"])
-                if eid not in target_ids:
-                    continue
-                result = _determine_result(event.get("scoreA"), event.get("scoreB"))
-                if result is not None:
-                    results[eid] = result
-                    log.info("[ResultsFetcher] event %d → %s (%s–%s)", eid, result,
-                             event.get("scoreA"), event.get("scoreB"))
-            except (KeyError, ValueError, TypeError):
+    # Fetch completed games across all mapped leagues
+    completed: dict[tuple[str, str], str] = {}
+    for sport_key in _load_sport_keys():
+        for game in _fetch_scores(sport_key, api_key):
+            if not game.get("completed"):
                 continue
+            home = game.get("home_team", "")
+            away = game.get("away_team", "")
+            result = _determine_result(home, away, game.get("scores") or [])
+            if result is not None:
+                completed[(home, away)] = result
 
-        await browser.close()
+    if not completed:
+        return results
+
+    all_home_teams = [k[0] for k in completed]
+
+    for row in pending:
+        db_home, db_away = row["home"], row["away"]
+
+        # Exact match
+        if (db_home, db_away) in completed:
+            results[row["event_id"]] = completed[(db_home, db_away)]
+            log.info("[ResultsFetcher] %s vs %s → %s (exact)",
+                     db_home, db_away, results[row["event_id"]])
+            continue
+
+        # Fuzzy match on home team, then constrain away candidates to that home
+        matched_home = _fuzzy_match(db_home, all_home_teams)
+        if matched_home is None:
+            continue
+        away_candidates = [k[1] for k in completed if k[0] == matched_home]
+        matched_away = _fuzzy_match(db_away, away_candidates)
+        if matched_away and (matched_home, matched_away) in completed:
+            results[row["event_id"]] = completed[(matched_home, matched_away)]
+            log.info("[ResultsFetcher] %s vs %s → %s (fuzzy: %s vs %s)",
+                     db_home, db_away, results[row["event_id"]], matched_home, matched_away)
 
     return results
-
-
-async def get_result(event_id: int) -> Optional[str]:
-    batch = await get_results_batch([event_id])
-    return batch.get(event_id)
