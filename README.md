@@ -34,7 +34,7 @@ telegram_bot.py
    📲 Alert
 ```
 
-The full pipeline is scheduled every 10 minutes by `scheduler.py`, active between 12:00–22:00 Israel time.
+The full pipeline is scheduled every 20 minutes by `scheduler.py`, active between 12:00–22:00 Israel time.
 
 ## Technical Highlights
 
@@ -64,7 +64,7 @@ The full pipeline is scheduled every 10 minutes by `scheduler.py`, active betwee
 
 **Pipeline** (run in order by `scheduler.py`):
 ```
-scheduler.py        — Main loop: runs every 10 min between 12:00–22:00 IL
+scheduler.py        — Main loop: runs every 20 min between 12:00–22:00 IL
 winner_scraper.py   — Scrapes live football odds from Winner.co.il via Playwright
 pinnacle_client.py  — Fetches sharp odds from Pinnacle via The Odds API
 matcher.py          — Matches Winner games against Pinnacle using Claude AI translation
@@ -108,7 +108,7 @@ cp .env.example .env   # then fill in your API keys
 python scheduler.py
 ```
 
-Requires Python 3.12+. The bot runs every 10 minutes between 12:00–22:00 Israel time.
+Requires Python 3.12+. The bot runs every 20 minutes between 12:00–22:00 Israel time.
 
 ## What I Learned
 
