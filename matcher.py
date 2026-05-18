@@ -68,7 +68,16 @@ def _translate_team(heb_name: str, pinnacle_teams: list[str]) -> Optional[str]:
     cache = data.setdefault("team_name_cache", {})
 
     if heb_name in cache:
-        return cache[heb_name]
+        entry = cache[heb_name]
+        if isinstance(entry, dict) and entry.get("value") == "NO_MATCH":
+            today = datetime.now(tz=timezone.utc).date().isoformat()
+            if entry.get("date") == today:
+                return None          # still NO_MATCH today — skip immediately
+            else:
+                del cache[heb_name]  # stale — delete and fall through to Claude
+                _save_translations(data)
+        elif isinstance(entry, str):
+            return entry             # plain string — backward compatible
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -99,6 +108,9 @@ def _translate_team(heb_name: str, pinnacle_teams: list[str]) -> Optional[str]:
         return None
 
     if result == "NO_MATCH":
+        today = datetime.now(tz=timezone.utc).date().isoformat()
+        cache[heb_name] = {"value": "NO_MATCH", "date": today}
+        _save_translations(data)
         return None
 
     log.info("[Matcher] Translated %r → %r via Claude", heb_name, result)
