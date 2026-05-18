@@ -1,5 +1,5 @@
 """
-scheduler.py — Main loop: runs the full EV pipeline every 10 minutes.
+scheduler.py — Main loop: runs the full EV pipeline every 20 minutes.
 """
 import asyncio
 import logging
@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger(__name__)
 
 _ISRAEL_TZ    = ZoneInfo("Asia/Jerusalem")
-_RUN_INTERVAL = timedelta(minutes=10)
+_RUN_INTERVAL = timedelta(minutes=20)
 _ACTIVE_START = 12   # 12:00 Israel
 _ACTIVE_END   = 22   # 22:00 Israel
 _PINNACLE_TTL = timedelta(minutes=20)
@@ -117,7 +117,7 @@ async def _run_pipeline() -> None:
 async def main() -> None:
     global agent_ran_today
     log.info("EV Bot scheduler starting.")
-    log.info("Active window: 12:00–22:00 IL | Pipeline: every 10 min | Agent: daily at 11:55 IL")
+    log.info("Active window: 12:00–22:00 IL | Pipeline: every 20 min | Agent: daily at 11:55 IL")
     init_db()
     while True:
         now_il = datetime.now(tz=_ISRAEL_TZ)
