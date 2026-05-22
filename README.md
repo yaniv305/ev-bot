@@ -1,5 +1,7 @@
 # EV Betting Bot
 
+![Tests](https://github.com/yaniv305/ev-bot/actions/workflows/tests.yml/badge.svg)
+
 ## Overview
 
 A Python bot that finds positive expected value (+EV) betting opportunities in real time. It scrapes live odds from Winner.co.il, compares them against Pinnacle's sharp market odds, and sends Telegram alerts whenever the expected value exceeds 4%.
