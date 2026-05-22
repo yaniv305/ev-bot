@@ -31,10 +31,31 @@ _PINNACLE_TTL = timedelta(minutes=20)
 
 agent_ran_today: date | None = None
 
+# Persistent browser session — reused across pipeline runs
+_scraper: WinnerScraper | None = None
+
 # In-memory Pinnacle cache
 _pinnacle_cache: list[dict] | None = None
 _pinnacle_cache_time: datetime | None = None
 _pinnacle_cache_keys: set[str] = set()
+
+
+async def _get_scraper() -> WinnerScraper:
+    global _scraper
+    if _scraper is None:
+        _scraper = WinnerScraper(headless=True)
+        await _scraper.start()
+    return _scraper
+
+
+async def _reset_scraper() -> None:
+    global _scraper
+    if _scraper is not None:
+        try:
+            await _scraper.stop()
+        except Exception:
+            pass
+        _scraper = None
 
 
 def _get_pinnacle_odds_cached(sport_keys: list[str]) -> list[dict]:
@@ -66,8 +87,19 @@ async def _run_pipeline() -> None:
     log.info("\n%s", "=" * 60)
     log.info("Run started: %s", now_il.strftime("%Y-%m-%d %H:%M:%S %Z"))
 
-    async with WinnerScraper(headless=True) as s:
-        result = await s.get_all_markets()
+    try:
+        scraper = await _get_scraper()
+        result  = await scraper.get_all_markets()
+    except Exception as exc:
+        log.error("[Scheduler] Browser error — resetting scraper: %s", exc)
+        await _reset_scraper()
+        raise
+
+    if "error" in result:
+        log.error("[Scheduler] Winner fetch failed — resetting scraper: %s", result["error"])
+        await _reset_scraper()
+        return
+
     winner_markets = _filter_upcoming_football(result["markets"])
 
     sport_keys = list({
@@ -119,28 +151,31 @@ async def main() -> None:
     log.info("EV Bot scheduler starting.")
     log.info("Active window: 12:00–22:00 IL | Pipeline: every 20 min | Agent: daily at 11:55 IL")
     init_db()
-    while True:
-        now_il = datetime.now(tz=_ISRAEL_TZ)
+    try:
+        while True:
+            now_il = datetime.now(tz=_ISRAEL_TZ)
 
-        if now_il.hour == 11 and 50 <= now_il.minute < 60 and agent_ran_today != now_il.date():
-            try:
-                await run_agent()
-            except Exception as exc:
-                log.error("[Scheduler] Agent run failed: %s", exc, exc_info=True)
-            agent_ran_today = now_il.date()
+            if now_il.hour == 11 and 50 <= now_il.minute < 60 and agent_ran_today != now_il.date():
+                try:
+                    await run_agent()
+                except Exception as exc:
+                    log.error("[Scheduler] Agent run failed: %s", exc, exc_info=True)
+                agent_ran_today = now_il.date()
 
-        if _ACTIVE_START <= now_il.hour < _ACTIVE_END:
-            try:
-                await _run_pipeline()
-            except Exception as exc:
-                log.error("[Scheduler] Run failed: %s", exc, exc_info=True)
-        else:
-            log.info("[Scheduler] Outside active window (12:00–22:00 IL). Sleeping.")
+            if _ACTIVE_START <= now_il.hour < _ACTIVE_END:
+                try:
+                    await _run_pipeline()
+                except Exception as exc:
+                    log.error("[Scheduler] Run failed: %s", exc, exc_info=True)
+            else:
+                log.info("[Scheduler] Outside active window (12:00–22:00 IL). Sleeping.")
 
-        next_run = datetime.now(tz=_ISRAEL_TZ) + _RUN_INTERVAL
-        log.info("[Scheduler] Next run: %s", next_run.strftime("%H:%M:%S %Z"))
-        log.info("%s", "=" * 60)
-        await asyncio.sleep(_RUN_INTERVAL.total_seconds())
+            next_run = datetime.now(tz=_ISRAEL_TZ) + _RUN_INTERVAL
+            log.info("[Scheduler] Next run: %s", next_run.strftime("%H:%M:%S %Z"))
+            log.info("%s", "=" * 60)
+            await asyncio.sleep(_RUN_INTERVAL.total_seconds())
+    finally:
+        await _reset_scraper()
 
 
 if __name__ == "__main__":
