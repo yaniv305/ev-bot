@@ -44,6 +44,110 @@ def _find_price(outcomes: list[dict], name: str) -> float | None:
     return None
 
 
+def get_all_sports() -> list[dict]:
+    """
+    GET /v4/sports — list all active sports with key + group.
+    Free endpoint, no quota cost.
+
+    Returns list of {key, group, title, active}.
+    """
+    if not _API_KEY:
+        raise ValueError("ODDS_API_KEY is not set. Add it to .env.")
+
+    try:
+        resp = requests.get(
+            f"{_BASE_URL}/sports",
+            params={"apiKey": _API_KEY},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        log.error("[OddsAPI] get_all_sports network error: %s", exc)
+        return []
+
+    if not resp.ok:
+        log.error("[OddsAPI] get_all_sports HTTP %s: %s", resp.status_code, resp.text[:200])
+        return []
+
+    try:
+        sports = resp.json()
+    except ValueError as exc:
+        log.error("[OddsAPI] get_all_sports JSON error: %s", exc)
+        return []
+
+    active = [s for s in sports if s.get("active")]
+    log.info("[OddsAPI] get_all_sports — %d active sports", len(active))
+    return active
+
+
+def get_today_events(sports: list[dict]) -> list[dict]:
+    """
+    GET /v4/sports/{sport_key}/events per sport.
+    Free endpoint, no quota cost.
+
+    Args:
+        sports: list returned by get_all_sports() — each entry has {key, group, ...}
+
+    Returns list of dicts:
+        id             str   (Odds API event id)
+        sport_key      str
+        group          str   (e.g. "Soccer")
+        home_team      str
+        away_team      str
+        commence_time  str   (UTC ISO 8601)
+    """
+    if not _API_KEY:
+        raise ValueError("ODDS_API_KEY is not set. Add it to .env.")
+
+    results: list[dict] = []
+
+    for sport in sports:
+        sport_key = sport["key"]
+        group = sport.get("group", "")
+        url = f"{_BASE_URL}/sports/{sport_key}/events"
+
+        try:
+            resp = requests.get(url, params={"apiKey": _API_KEY}, timeout=10)
+        except requests.RequestException as exc:
+            log.error("[OddsAPI] events network error for %s: %s", sport_key, exc)
+            continue
+
+        if resp.status_code == 401:
+            log.error("[OddsAPI] Invalid API key — aborting.")
+            break
+        if resp.status_code == 422:
+            log.debug("[OddsAPI] No events for sport %r — skipping.", sport_key)
+            continue
+        if resp.status_code == 429:
+            log.error("[OddsAPI] Quota exhausted — aborting.")
+            break
+        if not resp.ok:
+            log.error("[OddsAPI] HTTP %s for %s/events: %s",
+                      resp.status_code, sport_key, resp.text[:200])
+            continue
+
+        try:
+            events = resp.json()
+        except ValueError as exc:
+            log.error("[OddsAPI] events JSON error for %s: %s", sport_key, exc)
+            continue
+
+        for ev in events:
+            results.append({
+                "id":            ev.get("id", ""),
+                "sport_key":     sport_key,
+                "group":         group,
+                "home_team":     ev.get("home_team", ""),
+                "away_team":     ev.get("away_team", ""),
+                "commence_time": ev.get("commence_time", ""),
+            })
+
+        log.debug("[OddsAPI] %s — %d events", sport_key, len(events))
+
+    log.info("[OddsAPI] get_today_events — %d total events across %d sports",
+             len(results), len(sports))
+    return results
+
+
 def get_pinnacle_odds(league_keys: list[str]) -> list[dict]:
     """
     Fetch 1X2 (h2h) Pinnacle odds for the given Odds API sport keys.
