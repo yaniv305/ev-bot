@@ -36,7 +36,11 @@ log = logging.getLogger(__name__)
 # Games with unknown sport_ids still go through matching — candidates are searched
 # across all groups and the LLM identifies the sport from team names.
 SPORT_ID_TO_GROUP: dict[int, str] = {
-    240: "Soccer",
+    226:  "Baseball",
+    227:  "Basketball",
+    239:  "Tennis",
+    240:  "Soccer",
+    1100: "Soccer",   # European cups (Champions League etc.)
 }
 
 # How many seconds either side of the Winner kickoff to search for Pinnacle events.
