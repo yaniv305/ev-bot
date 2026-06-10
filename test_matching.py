@@ -1,5 +1,8 @@
 import asyncio
+import dataclasses
+import json
 import logging
+import pathlib
 
 from matching_service import build_daily_db, get_today_matches
 
@@ -25,7 +28,6 @@ print(f"Total matched: {len(games)}")
 
 if games:
     print()
-    print("First 3 matches:")
     print("-" * 60)
     for g in games:
         print(f"  Winner : {g.winner_home_raw} - {g.winner_away_raw}")
@@ -33,3 +35,9 @@ if games:
         print(f"  Sport  : {g.sport_key}")
         print(f"  Kickoff: {g.commence_time}")
         print()
+
+out_path = pathlib.Path(__file__).parent / "data" / "matched_games.json"
+out_path.parent.mkdir(parents=True, exist_ok=True)
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump([dataclasses.asdict(g) for g in games], f, ensure_ascii=False, indent=2)
+print(f"Saved to {out_path}")
