@@ -400,5 +400,10 @@
     "קטנזארו 1929": "US Catanzaro 1929",
     "א.ס. אבלינו": "Avellino",
     "אוסאסונה": "CA Osasuna"
+  },
+  "winner_sport_ids": {
+    "baseball": 226,
+    "basketball": 227,
+    "tennis": 239
   }
 }
