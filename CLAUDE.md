@@ -29,7 +29,8 @@ agents/coverage_scan_agent.py   Runs at 08:00 IL — daily multi-sport Winner↔
 ```
 translations.json   Team name cache + league maps + winner_sport_ids
 alerts.db           SQLite database
-data/               coverage_{date}.json files from coverage scan
+data/               coverage_{date}.json — matched pairs (gitignored)
+                    orphans_{date}.json  — debug report (gitignored)
 ```
 
 ---
@@ -68,6 +69,18 @@ The `id` field from `/events` is the stable Pinnacle identifier — used in `cov
 **Sport agent pattern**: sync Claude Haiku agent loop (`_run_sport_agent_sync`) wrapped in `asyncio.to_thread()` for parallel execution without blocking the async event loop.
 
 **Winner event_id deduplication**: Winner returns multiple markets per event (1X2, totals, handicap). Always deduplicate by `event_id` before calling Haiku for game matching.
+
+**Haiku ID extraction**: Haiku sometimes returns the correct hex ID followed by explanation text. Always extract with `re.search(r'\b([0-9a-f]{32})\b', raw)` rather than taking the raw response. If no hex found, check for `"NO_MATCH"` in the text.
+
+**Outright filter (`_is_game`)**: Soccer-only filter applied before `_match_games_in_league`. A description is a real game if it contains ` - ` and neither side contains a 4-digit year. Catches specials like "הזוכה במונדיאל 2026" without dropping actual match descriptions like "ארגנטינה - צרפת".
+
+**Orphan report**: `_write_orphans()` writes `data/orphans_{date}.json` after every scan. `orphan_leagues` = leagues skipped by the agent (no Pinnacle key found). `orphan_games` = games from matched leagues that still had no Pinnacle match, with `reason` and `candidates` fields. Never list individual games from orphan leagues.
+
+---
+
+## Next Session
+
+Build a Telegram report that sends the orphan debug summary: unmatched games, their Pinnacle candidates, and Haiku's reasoning for NO_MATCH. Triggered after the coverage scan completes.
 
 ---
 

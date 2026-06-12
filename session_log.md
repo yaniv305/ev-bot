@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-06-13 — Coverage Scan: Orphan Report + Bug Fixes
+
+### Branch: feature/coverage-scan-agent
+
+### What Was Built
+
+**Orphan report** (`data/orphans_{date}.json`) — debug file written alongside `coverage_{date}.json` every run:
+- `orphan_leagues`: Winner leagues the agent skipped (no Pinnacle equivalent). Listed with game count. Individual games NOT reported here.
+- `orphan_games`: games from matched leagues that still had no Pinnacle match. Includes `reason` (`no_candidates` or `no_match`) and, for `no_match`, the full `candidates` list that was shown to Haiku.
+- All times in Israel local time (`+03:00`).
+
+### Bugs Fixed
+
+**Haiku returns ID with explanation text (critical)**: After a prompt change encouraging Haiku to prefer matching, it started returning the correct hex ID followed by reasoning text (e.g. `"abc123...\n\nThe Hebrew description translates to..."`). The exact-string lookup failed for every game that triggered this. Fixed by extracting the 32-char hex ID with `re.search(r'\b([0-9a-f]{32})\b', raw)` instead of using the raw response text. Also handles `NO_MATCH` appearing anywhere in the response.
+
+**Outright markets sent to Haiku (soccer only)**: Winner includes special/outright markets in league buckets (e.g. "הזוכה במונדיאל 2026", "מלך השערים"). These can never match a Pinnacle game event and wasted Haiku calls. Fixed with `_is_game(description)` — returns `False` if the description has no ` - ` separator or contains a 4-digit year on either side. Applied in the soccer agent only, before calling `_match_games_in_league`. Real World Cup games ("ארגנטינה - צרפת") pass the filter unaffected.
+
+**Haiku prompt improved**: Added note that Hebrew dotted abbreviations map to initials (ה.י.ק. = HJK) and that single-candidate matches should prefer returning the id over NO_MATCH.
+
+### Final Test Results (2026-06-13)
+
+| Sport | Matched pairs | Orphan leagues | Orphan games |
+|---|---|---|---|
+| Soccer | ~10 | 19 | 5 (Finnish league, no_match) |
+| Basketball | ~5 | 9 | 0 |
+| Baseball | ~10 | 0 | 4 (no_match, wrong time-window candidates) |
+| Tennis | 0 | 6 | 0 |
+| **Total** | **29** | **34** | **9** |
+
+### Next Session
+Build a Telegram report that sends the orphan debug info: unmatched games, their Pinnacle candidates, and Haiku's reasoning for NO_MATCH.
+
+---
+
 ## 2026-06-12 — Coverage Scan Agent
 
 ### Branch: feature/coverage-scan-agent
