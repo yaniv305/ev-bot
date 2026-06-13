@@ -74,13 +74,19 @@ The `id` field from `/events` is the stable Pinnacle identifier — used in `cov
 
 **Outright filter (`_is_game`)**: Soccer-only filter applied before `_match_games_in_league`. A description is a real game if it contains ` - ` and neither side contains a 4-digit year. Catches specials like "הזוכה במונדיאל 2026" without dropping actual match descriptions like "ארגנטינה - צרפת".
 
-**Orphan report**: `_write_orphans()` writes `data/orphans_{date}.json` after every scan. `orphan_leagues` = leagues skipped by the agent (no Pinnacle key found). `orphan_games` = games from matched leagues that still had no Pinnacle match, with `reason` and `candidates` fields. Never list individual games from orphan leagues.
+**Orphan report**: `_write_orphans()` writes `data/orphans_{date}.json` after every scan. `orphan_leagues` = leagues skipped by the agent (no Pinnacle key found). `orphan_games` = games from matched leagues that still had no Pinnacle match, with `reason`, `pinnacle_league`, and `candidates` fields. Never list individual games from orphan leagues.
+
+**Wrong-key retry**: When `match_games_in_league` returns `warning=all_no_candidates` (majority of games have zero candidates), the sport agent retries with a different Pinnacle key. Tracked via `already_retried: set[str]` — on second failure the league becomes an orphan league. Detection: `no_cand_count > (len(unmatched) - no_cand_count)`.
+
+**Single-team fallback (`_match_single_team`)**: When Haiku returns NO_MATCH for a full Hebrew description, `_match_games_in_league` retries with just the home team name, then just the away team name. Splits on ` - `, sends only the relevant column (home or away) to Haiku with `max_tokens=64`. Resolves cases where one team name is ambiguous across candidates.
+
+**Telegram coverage report**: `send_coverage_report(total_matched, orphan_report)` in `telegram_bot.py` — sent at end of each scan. Three sections: (1) per-sport matched/unmatched counts, (2) all matched pairs as `winner_description → pinnacle_name` for false-positive detection, (3) all orphan games with Hebrew→Pinnacle league mapping and Pinnacle candidates for false-negative diagnosis. Plain text, single message, truncated at 4000 chars. Pairs are stored in `orphan_report[sport]["pairs"]` so the formatter has sport context.
 
 ---
 
 ## Next Session
 
-Build a Telegram report that sends the orphan debug summary: unmatched games, their Pinnacle candidates, and Haiku's reasoning for NO_MATCH. Triggered after the coverage scan completes.
+Wire `run_coverage_scan()` into `scheduler.py` at 08:00 IL (see Scheduler Timing table above).
 
 ---
 

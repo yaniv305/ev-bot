@@ -27,6 +27,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import anthropic
 import requests
 from dotenv import load_dotenv
+from telegram_bot import send_coverage_report
 
 load_dotenv()
 
@@ -265,10 +266,47 @@ def _fetch_pinnacle_events_for_group(sport_group: str) -> dict[str, dict]:
     return result
 
 
+def _match_single_team(
+    client: anthropic.Anthropic,
+    hebrew_name: str,
+    candidates: list[dict],
+    side: str,
+) -> str:
+    """Single-team fallback: match on home or away name alone when full-description fails."""
+    team_key = "home_team" if side == "home" else "away_team"
+    candidates_text = "\n".join(
+        f'{c["id"]}  {c[team_key]}'
+        for c in candidates
+    )
+    prompt = (
+        f"Return ONLY the 32-character hex id of the candidate whose {side} team matches the Hebrew name, or NO_MATCH. No explanation.\n\n"
+        f'Hebrew {side} team name: "{hebrew_name}"\n\n'
+        f"Candidates (id  {side}_team):\n{candidates_text}\n\n"
+        "Notes: Hebrew name is a phonetic transliteration of English. "
+        "Dotted abbreviations like ה.י.ק. = HJK (initials)."
+    )
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=64,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+    except Exception as exc:
+        log.error("[CoverageScan] Haiku single-team fallback error for %r: %s", hebrew_name, exc)
+        return "NO_MATCH"
+
+    hex_match = re.search(r'\b([0-9a-f]{32})\b', raw)
+    if hex_match:
+        return hex_match.group(1)
+    return "NO_MATCH"
+
+
 def _match_games_in_league(
     winner_games: list[dict],
     pinnacle_events: list[dict],
     league: str,
+    pinnacle_league: str = "",
 ) -> tuple[list[dict], list[dict]]:
     """
     For each Winner game, filter Pinnacle events to ±15 min candidates and ask
@@ -295,6 +333,7 @@ def _match_games_in_league(
                 "winner_event_id": wm["event_id"],
                 "description":     wm.get("description", ""),
                 "league":          league,
+                "pinnacle_league": pinnacle_league,
                 "kickoff":         _to_il(wm.get("kickoff", "")),
                 "reason":          "no_candidates",
             }
@@ -323,6 +362,7 @@ def _match_games_in_league(
                 "winner_event_id": wm["event_id"],
                 "description":     wm.get("description", ""),
                 "league":          league,
+                "pinnacle_league": pinnacle_league,
                 "kickoff":         _to_il(wm.get("kickoff", "")),
                 "reason":          "no_candidates",
             })
@@ -333,19 +373,19 @@ def _match_games_in_league(
             for c in candidates
         )
         prompt = (
+            "Return ONLY the 32-character hex id of the matching candidate, or NO_MATCH. No explanation.\n\n"
             f'Winner Hebrew description: "{wm["description"]}"\n\n'
-            f"Pinnacle candidates (format: <id>  <home> vs <away>  <time>):\n{candidates_text}\n\n"
-            "Which candidate matches the Hebrew description?\n"
-            "Notes: Hebrew team names are phonetic transliterations of English names. "
-            "Dotted Hebrew abbreviations like ה.י.ק. represent initials (e.g. ה.י.ק. = HJK). "
-            "If there is only one candidate and the team names correspond, prefer to match rather than NO_MATCH.\n"
-            "Return ONLY the id string from the first column, or NO_MATCH if no candidate matches."
+            f"Pinnacle candidates (id  home vs away  kickoff):\n{candidates_text}\n\n"
+            "Notes: Hebrew names are phonetic transliterations of English. "
+            "Dotted abbreviations like ה.י.ק. = HJK (initials). "
+            "The Hebrew format is always 'home team - away team' — match first name to home, second to away. "
+            "Single strong candidate: prefer returning the id over NO_MATCH."
         )
 
         try:
             resp = client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=128,
+                max_tokens=256,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw = resp.content[0].text.strip()
@@ -368,10 +408,26 @@ def _match_games_in_league(
         ]
 
         if returned_id == "NO_MATCH":
+            description = wm.get("description", "")
+            parts = description.split(" - ")
+            if len(parts) == 2:
+                home_heb, away_heb = parts[0].strip(), parts[1].strip()
+                for side, heb in [("home", home_heb), ("away", away_heb)]:
+                    fallback_id = _match_single_team(client, heb, candidates, side)
+                    if next((c for c in candidates if c["id"] == fallback_id), None):
+                        log.info(
+                            "[CoverageScan] Single-team fallback (%s): %r → matched",
+                            side, description,
+                        )
+                        returned_id = fallback_id
+                        break
+
+        if returned_id == "NO_MATCH":
             unmatched.append({
                 "winner_event_id": wm["event_id"],
                 "description":     wm.get("description", ""),
                 "league":          league,
+                "pinnacle_league": pinnacle_league,
                 "kickoff":         _to_il(wm.get("kickoff", "")),
                 "reason":          "no_match",
                 "candidates":      il_candidates,
@@ -388,6 +444,7 @@ def _match_games_in_league(
                 "winner_event_id": wm["event_id"],
                 "description":     wm.get("description", ""),
                 "league":          league,
+                "pinnacle_league": pinnacle_league,
                 "kickoff":         _to_il(wm.get("kickoff", "")),
                 "reason":          "no_match",
                 "candidates":      il_candidates,
@@ -399,9 +456,11 @@ def _match_games_in_league(
             wm["description"], matched["home_team"], matched["away_team"],
         )
         pairs.append({
-            "winner_event_id": wm["event_id"],
-            "pinnacle_id":     returned_id,
-            "kickoff":         _to_il(wm["kickoff"]),
+            "winner_event_id":    wm["event_id"],
+            "pinnacle_id":        returned_id,
+            "kickoff":            _to_il(wm["kickoff"]),
+            "winner_description": wm.get("description", ""),
+            "pinnacle_name":      f"{matched['home_team']} vs {matched['away_team']}",
         })
 
     return pairs, unmatched
@@ -438,9 +497,11 @@ def _run_sport_agent_sync(
 
     # Pinnacle events fetched on first tool call; stored here for subsequent calls
     pinnacle_cache: dict[str, list[dict]] = {}
+    pinnacle_title_cache: dict[str, str] = {}
     collected_pairs: list[dict] = []
     matched_league_names: set[str] = set()
     orphan_games: list[dict] = []
+    already_retried: set[str] = set()  # winner leagues that already got a wrong-key warning
 
     tools = [
         {
@@ -456,7 +517,8 @@ def _run_sport_agent_sync(
             "name": "match_games_in_league",
             "description": (
                 "Match Winner games for one Hebrew league to Pinnacle events for one sport key. "
-                "Call once per matched (winner_league, pinnacle_sport_key) pair."
+                "If the response contains warning=all_no_candidates, the Pinnacle key was wrong — "
+                "call again with a different pinnacle_sport_key for the same winner_league."
             ),
             "input_schema": {
                 "type": "object",
@@ -492,6 +554,8 @@ def _run_sport_agent_sync(
         f"Rules:\n"
         f"- Only match within {sport_group} — never cross sports\n"
         f"- Skip Winner leagues with no clear Pinnacle equivalent\n"
+        f"- If match_games_in_league returns warning=all_no_candidates, the Pinnacle key was wrong: "
+        f"try a different key for that winner league. If no better key exists, skip it.\n"
         f"- Call return_results exactly once at the end"
     )
 
@@ -524,6 +588,7 @@ def _run_sport_agent_sync(
                 if block.name == "fetch_pinnacle_events":
                     raw = _fetch_pinnacle_events_for_group(sport_group)
                     pinnacle_cache.update({k: v["events"] for k, v in raw.items()})
+                    pinnacle_title_cache.update({k: v["title"] for k, v in raw.items()})
                     # Return a compact summary — agent needs titles + sample teams to match leagues
                     summary = {
                         key: {
@@ -551,11 +616,48 @@ def _run_sport_agent_sync(
                     if sport_name == "soccer":
                         league_games = [g for g in league_games if _is_game(g.get("description", ""))]
 
-                    matched_league_names.add(winner_league)
-                    pairs, unmatched = _match_games_in_league(league_games, pinnacle_events, winner_league)
-                    collected_pairs.extend(pairs)
-                    orphan_games.extend(unmatched)
-                    content = json.dumps({"matched": len(pairs), "unmatched": len(unmatched)})
+                    pinnacle_title = pinnacle_title_cache.get(pinnacle_sport_key, "")
+                    pairs, unmatched = _match_games_in_league(league_games, pinnacle_events, winner_league, pinnacle_title)
+
+                    no_cand_count = sum(1 for g in unmatched if g["reason"] == "no_candidates")
+                    # Trigger retry when zero matches and majority of games lack any time-window
+                    # candidates — strong signal the Pinnacle key is wrong (not just hard to match).
+                    wrong_key = (
+                        not pairs and bool(unmatched) and
+                        no_cand_count > (len(unmatched) - no_cand_count)
+                    )
+
+                    if wrong_key and winner_league not in already_retried:
+                        # First attempt: likely wrong Pinnacle key — signal agent to retry
+                        already_retried.add(winner_league)
+                        log.info(
+                            "[CoverageScan] %s / '%s': %d/%d games no_candidates under '%s' — wrong key, signalling retry",
+                            sport_name, winner_league, no_cand_count, len(unmatched), pinnacle_sport_key,
+                        )
+                        content = json.dumps({
+                            "matched": 0,
+                            "unmatched": len(unmatched),
+                            "warning": "all_no_candidates",
+                            "message": (
+                                f"None of the {len(unmatched)} games in '{winner_league}' found any "
+                                f"Pinnacle events in the ±15min window under '{pinnacle_sport_key}'. "
+                                "Likely wrong key. Try a different pinnacle_sport_key for this winner league, "
+                                "or proceed to return_results if no better key exists."
+                            ),
+                        })
+                        # Don't add to matched_league_names — keep it open for retry
+                    else:
+                        matched_league_names.add(winner_league)
+                        collected_pairs.extend(pairs)
+                        if wrong_key:
+                            # Second attempt also wrong — treat as orphan league, not orphan games
+                            log.info(
+                                "[CoverageScan] %s / '%s': still all no_candidates after retry — orphan league",
+                                sport_name, winner_league,
+                            )
+                        else:
+                            orphan_games.extend(unmatched)
+                        content = json.dumps({"matched": len(pairs), "unmatched": len(unmatched)})
 
                 elif block.name == "return_results":
                     content = json.dumps({"status": "done", "total": len(collected_pairs)})
@@ -676,6 +778,8 @@ async def run_coverage_scan() -> None:
         else:
             all_pairs.extend(result["pairs"])
             orphan_report[sport_name] = {
+                "matched_count":  len(result["pairs"]),
+                "pairs":          result["pairs"],
                 "orphan_leagues": result["orphan_leagues"],
                 "orphan_games":   result["orphan_games"],
             }
@@ -684,6 +788,7 @@ async def run_coverage_scan() -> None:
     _write_output(all_pairs)
     _write_orphans(orphan_report)
     log.info("[CoverageScan] Complete — %d total matched pairs", len(all_pairs))
+    await send_coverage_report(len(all_pairs), orphan_report)
 
 
 # ── Manual test run ───────────────────────────────────────────────────────────

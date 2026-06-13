@@ -2,37 +2,56 @@
 
 ---
 
-## 2026-06-13 — Coverage Scan: Orphan Report + Bug Fixes
+## 2026-06-13 (continued) — Matched-Games Debug Report + PROJECT_CASE_STUDY.md
+
+### Branch: feature/coverage-scan-agent
+
+### What Was Built
+
+**Matched-games section in Telegram report**: Each matched pair now stores `winner_description` and `pinnacle_name` (`"{home} vs {away}"`) in the pair dict. `orphan_report[sport]["pairs"]` carries these into `send_coverage_report()`. The Telegram message now has a "Matched games:" section listing every pair as `Hebrew → Pinnacle English name | kickoff` — lets you visually spot false positives (wrong match) at a glance. Orphan section below it catches false negatives (should have matched but didn't). Both failure modes visible in one message without touching logs.
+
+**`PROJECT_CASE_STUDY.md`**: Comprehensive technical reference document covering architecture, development process, all design decisions, debugging stories, AI usage, and resume/interview material.
+
+### Final Test Results (after matched-games addition)
+
+31 total matched pairs (soccer 20, basketball 8, baseball 3), 0 orphan games. Telegram report sent at 2247 chars.
+
+---
+
+## 2026-06-13 — Coverage Scan: Orphan Report, Telegram, Fallback Matching
 
 ### Branch: feature/coverage-scan-agent
 
 ### What Was Built
 
 **Orphan report** (`data/orphans_{date}.json`) — debug file written alongside `coverage_{date}.json` every run:
-- `orphan_leagues`: Winner leagues the agent skipped (no Pinnacle equivalent). Listed with game count. Individual games NOT reported here.
-- `orphan_games`: games from matched leagues that still had no Pinnacle match. Includes `reason` (`no_candidates` or `no_match`) and, for `no_match`, the full `candidates` list that was shown to Haiku.
+- `orphan_leagues`: Winner leagues the agent skipped (no Pinnacle equivalent). Listed with game count. Individual games NOT listed here.
+- `orphan_games`: games from matched leagues that had no Pinnacle match. Includes `reason` (`no_candidates` or `no_match`), `pinnacle_league` (English Pinnacle key title), and for `no_match`, the full `candidates` list.
 - All times in Israel local time (`+03:00`).
+
+**Telegram coverage report**: `send_coverage_report()` in `telegram_bot.py` — sent after each scan. Shows matched/unmatched per sport, then all orphan games with the Hebrew→Pinnacle league mapping and Pinnacle candidates. Single message, truncated at 4000 chars.
+
+**Wrong-key retry logic**: When majority of games in a league have `no_candidates` (i.e. `no_cand_count > len(unmatched) - no_cand_count`), the tool response includes `warning=all_no_candidates` and the sport agent retries with a different Pinnacle key. `already_retried: set[str]` prevents infinite loops — on second failure the league is moved to orphan_leagues. Catches שבדית שלישית→Superettan correctly even when some Superettan games accidentally fall in the ±15min window.
+
+**Single-team fallback** (`_match_single_team`): When Haiku returns NO_MATCH for a full Hebrew description, the function retries using only the home team name, then only the away team name. Fixes ambiguous cases like "אילבס - טורון" where "טורון" (Turku) appears in two candidates — "אילבס" alone unambiguously maps to Ilves Tampere. Logged as `[CoverageScan] Single-team fallback (home): '...' → matched`.
 
 ### Bugs Fixed
 
-**Haiku returns ID with explanation text (critical)**: After a prompt change encouraging Haiku to prefer matching, it started returning the correct hex ID followed by reasoning text (e.g. `"abc123...\n\nThe Hebrew description translates to..."`). The exact-string lookup failed for every game that triggered this. Fixed by extracting the 32-char hex ID with `re.search(r'\b([0-9a-f]{32})\b', raw)` instead of using the raw response text. Also handles `NO_MATCH` appearing anywhere in the response.
+**Haiku ID truncation (max_tokens=128)**: Haiku reasons before answering (~100 tokens), leaving no room for the 32-char hex ID. Fixed: raised `max_tokens` to 256 and moved format instruction to top of prompt.
 
-**Outright markets sent to Haiku (soccer only)**: Winner includes special/outright markets in league buckets (e.g. "הזוכה במונדיאל 2026", "מלך השערים"). These can never match a Pinnacle game event and wasted Haiku calls. Fixed with `_is_game(description)` — returns `False` if the description has no ` - ` separator or contains a 4-digit year on either side. Applied in the soccer agent only, before calling `_match_games_in_league`. Real World Cup games ("ארגנטינה - צרפת") pass the filter unaffected.
+**Haiku returns ID with explanation text**: Fixed by extracting the 32-char hex ID with `re.search(r'\b([0-9a-f]{32})\b', raw)` instead of using the raw response. `NO_MATCH` also checked anywhere in the text.
 
-**Haiku prompt improved**: Added note that Hebrew dotted abbreviations map to initials (ה.י.ק. = HJK) and that single-candidate matches should prefer returning the id over NO_MATCH.
+**Outright markets sent to Haiku**: Soccer includes specials like "הזוכה במונדיאל 2026". Fixed with `_is_game(description)` — rejects descriptions with no ` - ` separator or a 4-digit year on either side. Real match descriptions ("ארגנטינה - צרפת") pass unaffected.
 
 ### Final Test Results (2026-06-13)
 
 | Sport | Matched pairs | Orphan leagues | Orphan games |
 |---|---|---|---|
-| Soccer | ~10 | 19 | 5 (Finnish league, no_match) |
-| Basketball | ~5 | 9 | 0 |
-| Baseball | ~10 | 0 | 4 (no_match, wrong time-window candidates) |
-| Tennis | 0 | 6 | 0 |
-| **Total** | **29** | **34** | **9** |
-
-### Next Session
-Build a Telegram report that sends the orphan debug info: unmatched games, their Pinnacle candidates, and Haiku's reasoning for NO_MATCH.
+| Soccer | 18 | 28 | 0 |
+| Basketball | 8 | 20 | 0 |
+| Baseball | 3 | 0 | 0 |
+| Tennis | 0 | 12 | 0 |
+| **Total** | **29** | **60** | **0** |
 
 ---
 
