@@ -618,6 +618,8 @@ def _run_sport_agent_sync(
 
                     pinnacle_title = pinnacle_title_cache.get(pinnacle_sport_key, "")
                     pairs, unmatched = _match_games_in_league(league_games, pinnacle_events, winner_league, pinnacle_title)
+                    for p in pairs:
+                        p["sport_key"] = pinnacle_sport_key
 
                     no_cand_count = sum(1 for g in unmatched if g["reason"] == "no_candidates")
                     # Trigger retry when zero matches and majority of games lack any time-window

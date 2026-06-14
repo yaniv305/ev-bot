@@ -2,6 +2,63 @@
 
 ---
 
+## 2026-06-14 — Soccer EV Pipeline + Project Cleanup
+
+### Branch: feature/coverage-scan-agent
+
+### What Was Built
+
+**`match_odds.py`** — new manual EV scanner, replacing the old `scheduler.py` pipeline:
+- Loads `data/coverage_{today}.json` (pre-matched pairs from coverage scan)
+- Filters to soccer pairs in the kickoff window (−60 min to +90 min)
+- Fetches Winner markets once via `WinnerScraper.get_all_markets()`
+- Per active game: calls `get_event_odds()` → builds 3 market pairs (1X2, O/U, BTTS)
+- Deduplicates against DB before sending Telegram alerts
+
+**`pinnacle_client.get_event_odds(sport_key, event_id)`** — new function:
+- Calls `GET /v4/sports/{sport_key}/events/{event_id}/odds?markets=h2h,totals,alternate_totals,btts`
+- Merges `totals` + `alternate_totals` into one deduplicated list keyed by point (gives all lines 1.25→3.5)
+- Returns `{home_odds, draw_odds, away_odds, totals: [...], btts_yes_odds, btts_no_odds}`
+- Cost: 4 quota per game call
+
+**`ev_calculator.py`** — extended to handle 3 market types:
+- `h2h` (1X2): unchanged — `if not all([h,d,a]): continue` kept (draw required for soccer)
+- `totals`: 2-way devig; exact line match from `pinn_event["totals"]` list; `מעל`→Over / `מתחת`→Under
+- `btts`: 2-way devig; `כן`→Yes / `לא`→No
+- All alert dicts now include `winner_event_id` for DB deduplication
+
+**`coverage_scan_agent.py`** — added `sport_key` to each output pair:
+- One-liner: `p["sport_key"] = pinnacle_sport_key` after `_match_games_in_league`
+- Needed by `match_odds.py` to call the event-specific Pinnacle endpoint
+
+### Soccer Market Scope Confirmed
+| Market | Winner keyword | Pinnacle |
+|---|---|---|
+| 1X2 | `"1X2" in mt AND "תוצאת סיום" in mt` | `h2h` |
+| Over/Under goals | `"מעל/מתחת שערים" in mt AND "תוצאת סיום" in mt` | `totals + alternate_totals` (exact line) |
+| BTTS | `"האם כל קבוצה תבקיע" in mt AND "תוצאת סיום" in mt` | `btts` |
+
+### Files Deleted (no longer relevant)
+- `scheduler.py` — replaced by `match_odds.py` + future scheduler (next session)
+- `matcher.py` — replaced by coverage scan + match_odds.py lookup
+- `agents/daily_prep_agent.py` — no longer needed
+- `results_fetcher.py` — was only used by old scheduler
+- `PLAYBOOK.md` — superseded by CLAUDE.md
+
+### Cleaned Up
+- `pinnacle_client.py`: removed `get_pinnacle_odds()`, `WINNER_LEAGUE_MAP`, `_load_league_map()`
+- `=3.0`: accidental pip output file, deleted
+
+### Test Results
+- Coverage scan: 16 pairs with `sport_key` (10 soccer, 3 basketball, 3 baseball)
+- `match_odds.py` on Netherlands vs Japan: 3 pairs built (h2h + totals + BTTS), 0 alerts (no +EV at that moment)
+- 4 quota used per game call
+
+### Next Session
+Build new `scheduler.py` — runs `match_odds.py` logic on a timed interval with `run_coverage_scan()` at 08:00 IL.
+
+---
+
 ## 2026-06-13 (continued) — Matched-Games Debug Report + PROJECT_CASE_STUDY.md
 
 ### Branch: feature/coverage-scan-agent
